@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+*.pth
+outputs/checkpoints/
+outputs/predictions/
+outputs/metrics/
+outputs/plots/
+outputs/eda/
+.ipynb_checkpoints/
+wandb/
+.env
+.claude

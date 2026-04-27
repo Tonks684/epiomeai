@@ -1,0 +1,19 @@
+task: task1
+model: mlp
+temporal_modes:
+  - t0
+  - t1
+  - concat
+  - delta
+mlp:
+  hidden_dims: [256, 64]
+  dropout: 0.4
+  lr: 0.001
+  weight_decay: 0.0001
+  batch_size: 32
+  max_epochs: 200
+  patience: 15
+cv:
+  n_splits: 5
+  n_repeats: 3
+  random_state: 42

@@ -1,0 +1,15 @@
+task: task1
+model: logreg
+temporal_modes:
+  - t0
+  - t1
+  - concat
+  - delta
+logreg:
+  C: 1.0
+  penalty: l2
+  max_iter: 1000
+cv:
+  n_splits: 5
+  n_repeats: 3
+  random_state: 42

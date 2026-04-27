@@ -1,0 +1,16 @@
+task: task2
+model: gbm
+temporal_modes:
+  - t0
+  - t1
+  - concat
+  - delta
+gbm:
+  max_iter: 200
+  learning_rate: 0.05
+  max_depth: 4
+  min_samples_leaf: 20
+cv:
+  n_splits: 5
+  n_repeats: 3
+  random_state: 42

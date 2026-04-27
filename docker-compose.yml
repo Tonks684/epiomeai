@@ -1,0 +1,15 @@
+services:
+  train:
+    build: .
+    volumes:
+      - ./data:/app/data:ro
+      - ./outputs:/app/outputs
+      - ./config:/app/config:ro
+    environment:
+      - WANDB_API_KEY=${WANDB_API_KEY:-}
+
+  test:
+    build: .
+    volumes:
+      - ./data:/app/data:ro
+    entrypoint: ["python", "-m", "pytest", "tests/", "-v"]
