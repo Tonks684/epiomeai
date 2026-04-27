@@ -1,0 +1,12 @@
+task: task1
+model: logreg
+temporal_modes:
+  - t0
+logreg:
+  C: 1.0
+  penalty: l2
+  max_iter: 200
+cv:
+  n_splits: 2
+  n_repeats: 1
+  random_state: 42
