@@ -65,6 +65,21 @@ pytest tests/ -v
 
 15 unit tests cover data loading correctness (shapes, beta-value range, NaN checks, label counts), split leakage, full-coverage cross-validation, and stratification preservation.
 
+## End-to-end reproducibility check (local + CI)
+
+Run a full smoke pipeline (train sklearn + train MLP + evaluate) with a lightweight deterministic config:
+
+```bash
+bash scripts/e2e_smoke.sh
+```
+
+This writes reproducibility artefacts to `outputs/ci_smoke/` and is the same command executed in CI.
+
+## Continuous integration / continuous deployment
+
+- **CI**: `.github/workflows/ci.yml` runs on every push and pull request, executes unit tests, runs the end-to-end smoke pipeline, and uploads smoke artefacts.
+- **CD**: `.github/workflows/cd.yml` publishes a Docker image to GHCR on version tags (`v*`) or manual dispatch.
+
 ---
 
 ## Running model training
