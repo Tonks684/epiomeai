@@ -1,7 +1,7 @@
 # Alzheimer's Disease Progression from DNA Methylation
 
-[![CI](https://github.com/<OWNER>/<REPO>/actions/workflows/ci.yml/badge.svg)](https://github.com/<OWNER>/<REPO>/actions/workflows/ci.yml)
-[![CD](https://github.com/<OWNER>/<REPO>/actions/workflows/cd.yml/badge.svg)](https://github.com/<OWNER>/<REPO>/actions/workflows/cd.yml)
+[![CI](https://github.com/Tonks684/epiomeai/actions/workflows/ci.yml/badge.svg)](https://github.com/Tonks684/epiomeai/actions/workflows/ci.yml)
+[![CD](https://github.com/Tonks684/epiomeai/actions/workflows/cd.yml/badge.svg)](https://github.com/Tonks684/epiomeai/actions/workflows/cd.yml)
 
 Binary classification of Alzheimer's disease progression from peripheral blood DNA methylation data (ADNI). Two independent tasks:
 
