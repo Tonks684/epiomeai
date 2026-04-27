@@ -1,5 +1,8 @@
 # Alzheimer's Disease Progression from DNA Methylation
 
+[![CI](https://github.com/<OWNER>/<REPO>/actions/workflows/ci.yml/badge.svg)](https://github.com/<OWNER>/<REPO>/actions/workflows/ci.yml)
+[![CD](https://github.com/<OWNER>/<REPO>/actions/workflows/cd.yml/badge.svg)](https://github.com/<OWNER>/<REPO>/actions/workflows/cd.yml)
+
 Binary classification of Alzheimer's disease progression from peripheral blood DNA methylation data (ADNI). Two independent tasks:
 
 - **Task 1:** CN → CN vs CN → MCI (190 individuals, 22.6% converters)
@@ -8,6 +11,8 @@ Binary classification of Alzheimer's disease progression from peripheral blood D
 Three model classes are evaluated across four temporal feature representations (t0, t1, concat, delta) using 5-fold × 3-repeat stratified cross-validation.
 
 For full modelling rationale, results, and reflection see [`report.md`](report.md).
+
+> Replace `<OWNER>/<REPO>` with your GitHub org/user and repository name (for example: `jane-doe/epiomeai`).
 
 ---
 
