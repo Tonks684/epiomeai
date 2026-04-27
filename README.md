@@ -1,5 +1,8 @@
 # Alzheimer's Disease Progression from DNA Methylation
 
+[![CI](https://github.com/<OWNER>/<REPO>/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/<OWNER>/<REPO>/actions/workflows/ci.yml)
+[![CD](https://github.com/<OWNER>/<REPO>/actions/workflows/cd.yml/badge.svg?branch=main)](https://github.com/<OWNER>/<REPO>/actions/workflows/cd.yml)
+
 Binary classification of Alzheimer's disease progression from peripheral blood DNA methylation data (ADNI). Two independent tasks:
 
 - **Task 1:** CN → CN vs CN → MCI (190 individuals, 22.6% converters)
@@ -8,6 +11,10 @@ Binary classification of Alzheimer's disease progression from peripheral blood D
 Three model classes are evaluated across four temporal feature representations (t0, t1, concat, delta) using 5-fold × 3-repeat stratified cross-validation.
 
 For full modelling rationale, results, and reflection see [`report.md`](report.md).
+
+> Replace `<OWNER>/<REPO>` with your GitHub org/user and repository name (for example: `jane-doe/epiomeai`).  
+> The `?branch=main` filter ensures badges show default-branch status instead of a failing feature branch run.  
+> CD badge stays `no status` until the workflow runs at least once on `main` (or manually via **Run workflow**).
 
 ---
 
@@ -64,6 +71,21 @@ pytest tests/ -v
 ```
 
 15 unit tests cover data loading correctness (shapes, beta-value range, NaN checks, label counts), split leakage, full-coverage cross-validation, and stratification preservation.
+
+## End-to-end reproducibility check (local + CI)
+
+Run a full smoke pipeline (train sklearn + train MLP + evaluate) with a lightweight deterministic config:
+
+```bash
+bash scripts/e2e_smoke.sh
+```
+
+This writes reproducibility artefacts to `outputs/ci_smoke/` and is the same command executed in CI.
+
+## Continuous integration / continuous deployment
+
+- **CI**: `.github/workflows/ci.yml` runs on every push and pull request, executes unit tests, runs the end-to-end smoke pipeline, and uploads smoke artefacts.
+- **CD**: `.github/workflows/cd.yml` publishes a Docker image to GHCR on version tags (`v*`) or manual dispatch.
 
 ---
 
