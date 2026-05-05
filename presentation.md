@@ -144,6 +144,7 @@ def build_logreg(config): ...
 Training scripts call `get_model(config['model'], config)` without any `if/elif` chain. Adding a new model means creating a new file with a `@register_model` decorator — no changes to training scripts.
 
 **Backward compatibility:** `src/data.py` is retained as a thin shim that delegates to `AdniDataset`, so existing tests and the `inspect_hdf5.py` script continue to work unchanged.
+
 ### 4b. End-end pipeline
 > 1. **Load** — `src/data.py` (or `src/datasets/adni.py`) reads the HDF5 and returns X as (N, T, D) and y as (N,) per task.  
 > 2. **Temporal mode** — `src/preprocessing.py` computes the requested representation (t0, t1, concat, or delta) from the (N, T, D) array, giving (N, D') where D' is 2,000 or 4,000.  
@@ -172,6 +173,13 @@ The delta prediction was confirmed. Logistic regression was a strong baseline. T
 ![](./outputs/plots/task1_roc_auc_bars.png)
 ![](./outputs/plots/task1_sensitivity_bars.png)
 
+1. Delta is consistently uninformative — confirms the EDA prediction.
+2. Logistic regression beats GBM substantially in this regime (high-D, low-N).
+3. MLP's main gain over logistic regression is **sensitivity** (missing true converter as FN), not ROC-AUC. The discrimination gap is small; the recall gap is large. The MLP's per-fold early stopping and nonlinearity appear to uncover signal not found in R-LR. Potenitally because the discriminative signal is likely not uniformly distributed across all features. Small subset carry most of the signal and their joint effect is not always the same at different regions. This non-linearity cant be modelled in R-LR.
+4. Adding t1 to t0 (concat)  on Task 1, t0 alone is effectively optimal.
+
+
+
 **Task 2 (MCI → Dementia) — best results per model:**
 
 | Model | Mode | ROC-AUC | PR-AUC | Sensitivity |
@@ -185,12 +193,8 @@ The delta prediction was confirmed. Logistic regression was a strong baseline. T
 ![](./outputs/plots/task2_roc_auc_bars.png)
 
 
-Key takeaways:
-1. Delta is consistently uninformative — confirms the EDA prediction.
-2. Logistic regression beats GBM substantially in this regime (high-D, low-N).
-3. MLP's main gain over logistic regression is **sensitivity** (missing true converter as FN), not ROC-AUC. The discrimination gap is small; the recall gap is large. The MLP's per-fold early stopping and nonlinearity appear to uncover signal not found in R-LR. Potenitally because the discriminative signal is likely not uniformly distributed across all features. Small subset carry most of the signal and their joint effect is not always the same at different regions. This non-linearity cant be modelled in R-LR.
-4. Adding t1 to t0 (concat) offers modest but real gains on Task 2; on Task 1, t0 alone is effectively optimal.
-5. All numbers are **optimistically biased** by pre-selection leakage (see §5).
+1. Adding t1 to t0 (concat) offers modest but real gains on Task 2.
+2. All numbers are **optimistically biased** by pre-selection leakage (see §5).
 
 ### 6. Limitations
 
