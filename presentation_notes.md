@@ -100,23 +100,42 @@ Key takeaways to state explicitly:
 4. Adding t1 to t0 (concat) offers modest but real gains on Task 2; on Task 1, t0 alone is effectively optimal.
 5. All numbers are **optimistically biased** by pre-selection leakage (see §5).
 
-### 5. Limitations (~2 min)
+### 5. Limitations (~3–4 min)
 
-_"The most important limitation is the one baked in from the start."_ (report §2.2 and §5.4)
+_"The most important limitation is the one baked in from the start — but there are four others that matter for interpreting clinical relevance."_ (report §2.2 and §5.4)
 
-**Feature pre-selection leakage.** The 2,000 CpGs were selected using variance ratio between converters and non-converters on the **full dataset**. This encodes label information before any train/test split. All reported AUCs are optimistically inflated by an unknown amount. Fold-wise reselection is not possible without the full CpG matrix. Relative comparisons between models and temporal modes are still valid; **absolute AUC values should not be taken as estimates of real-world performance**.
+**1. Feature pre-selection leakage — the dominant bias.**  
+The 2,000 CpGs were selected using a variance ratio between converters and non-converters on the **full dataset**, before any train/test split. This is label-leaking feature selection: the model never sees unseen CpGs, but the 2,000 it does see were chosen because they already discriminate groups. Every reported AUC is optimistically inflated. Studies comparing global versus fold-wise feature selection on similar high-D, low-N methylation problems have reported AUC drops of 0.05–0.15 or more. I would not cite 0.970 as a generalisation estimate.
 
-Other honest gaps: no clinical covariates (APOE ε4, age, sex), no cell-type deconvolution for blood methylation confounding, no batch correction (no metadata provided), all evaluation within ADNI (known selection characteristics — older, educated, predominantly white).
+Two things I want to be clear about: first, the **relative comparisons** between models and between temporal modes are still valid — all models train on the same biased feature set, so the bias is constant across comparisons. MLP > LogReg > GBM, and t0/t1 >> delta, are robust findings. Second, fold-wise reselection cannot be done without the full CpG matrix; it is not a gap in the pipeline design but a constraint of the provided data.
 
-### 6. What I'd do next (~1 min)
+**2. Missing clinical covariates — especially APOE ε4.**  
+APOE ε4 is the strongest known genetic risk factor for late-onset Alzheimer's disease, with substantially elevated conversion rates in carriers. Crucially, APOE genotype also correlates with specific methylation patterns. Without including APOE as a covariate or stratification variable, the model may be learning methylation signatures that proxy for APOE status rather than for conversion itself. That would inflate ADNI performance while the model fails to generalise to populations with a different APOE ε4 prevalence. Age and sex are similarly important methylation confounders — methylation clocks are age-dependent, and sex-linked CpGs show systematic differences. None of these were provided in the HDF5 metadata.
 
-_"In priority order by expected return:"_
+**3. Cell-type deconvolution — the blood methylation confound.**  
+Peripheral blood methylation is a mixture signal: monocytes, T-cells, B-cells, neutrophils, and other cell types each carry distinct methylation profiles, and the proportions of these cell types are known to differ between AD cases and controls. Without deconvolution (e.g., Houseman reference-based correction using the Reinius reference panel), a proportion of the discriminative signal the model captures may reflect cell-type shifts rather than neurodegenerative-relevant CpG changes. This is a standard preprocessing step in blood methylation studies that was not applied because cell-type reference data was not provided.
 
-1. **Fold-wise feature reselection** — would give an unbiased performance estimate. Highest-impact fix.
-2. **Clinical covariates** — APOE ε4 alone is a strong independent predictor; its absence is also a confounding risk.
-3. **Survival analysis** — time-to-conversion rather than binary label captures more clinical information.
-4. **External validation** — ROSMAP or AIBL to test whether signals transfer out of ADNI.
-5. **Temporal models at scale** — dataset interface already returns (N, T, D), ready for an RNN/transformer if data scale grows.
+**4. No batch correction — unknowable effect.**  
+Illumina EPIC and 450k arrays are susceptible to systematic technical variation by processing batch, scanner, and date of hybridisation. The provided HDF5 contains no array or batch metadata. If samples from converters and non-converters were processed in different batches — even partially — the model can learn batch-associated CpG patterns that spuriously separate groups. Since the metadata is unavailable, the direction and magnitude of this effect cannot be assessed. For any follow-on study, batch metadata would be the first thing to request.
+
+**5. External validity — ADNI is not the general population.**  
+All evaluation is within ADNI, which selects for older, highly educated, predominantly white, English-speaking individuals who are willing and able to participate in longitudinal studies. Conversion rates and methylation profiles may differ substantially in a clinical or population-representative cohort. The numbers here are internally valid given the provided data, but they are not estimates of deployment performance.
+
+### 6. What I'd do next (~2 min)
+
+_"In priority order by expected return on validity and clinical relevance:"_
+
+**1. Fold-wise feature reselection** — the highest-impact methodological fix. Re-run variance-ratio feature selection inside each CV fold using only training-fold labels, then evaluate on the held-out fold using only those fold-specific features. This removes the label leakage entirely and gives unbiased AUC estimates. It requires access to the full CpG matrix (~850k CpGs on the EPIC array), which was not part of the provided data. With the full matrix, this is a two-line change to the `src/splits.py` loop — the pipeline is already structured to support it.
+
+**2. Add clinical covariates** — specifically APOE ε4 genotype, age, and sex as additional input features or as stratification variables. APOE ε4 alone could substantially improve discrimination and would also reveal whether methylation adds predictive value beyond genotype — which is the scientifically interesting question. This would require linking the HDF5 subject IDs to ADNI clinical metadata, which is available through the ADNI data portal.
+
+**3. Ensemble LogReg + MLP** — a natural, low-cost extension. Since OOF predictions are already saved for all 15 folds and both models, averaging predicted probabilities from LogReg (stable, well-ranked) and MLP (higher sensitivity) is a post-hoc step requiring no retraining. LogReg and MLP make different errors — their combination typically improves PR-AUC and reduces variance across folds.
+
+**4. Calibration and threshold selection** — the current probabilities from class-weighted training are shifted from the true prevalence and should not be interpreted as conversion probabilities. Platt scaling or isotonic regression (fit on a held-out subset using nested CV) would give calibrated probabilities. Separately, threshold optimisation using Youden's J or a cost-weighted criterion on a held-out fold would close the sensitivity gap seen in logistic regression without requiring a different model.
+
+**5. Survival analysis** — replace the binary label with time-to-conversion modelling using a Cox proportional hazards model or a discrete-time model (e.g., `pycox`). The current binary label discards information about *when* conversion happens within the observation window, and treats individuals censored before conversion (not yet converted) identically to true non-converters. A survival model handles censoring correctly and produces clinically richer outputs: a predicted hazard curve over time rather than a single probability.
+
+**6. External validation** — apply the ADNI-trained model to ROSMAP (Rush University Memory and Aging Project) or AIBL (Australian Imaging, Biomarker & Lifestyle study), both of which have longitudinal blood methylation data in AD populations. The main practical barrier is CpG panel harmonisation across array generations. This is the step that converts an internal validation result into a generalisable finding.
 
 ---
 
