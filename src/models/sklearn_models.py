@@ -32,7 +32,3 @@ def build_gbm(config: dict) -> HistGradientBoostingClassifier:
     )
 
 
-def build_model(config: dict):
-    """Delegate to the model registry to instantiate the model named in config['model']."""
-    from src.models.registry import get_model
-    return get_model(config['model'], config)

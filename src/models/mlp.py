@@ -1,7 +1,11 @@
+from functools import partial
+
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
+
+from src.models.registry import register_model
 
 
 class MLP(nn.Module):
@@ -95,6 +99,12 @@ def train_fold(
     model.load_state_dict(best_weights)
     _, val_probs = _eval(model, val_loader, criterion, device)
     return val_probs, history
+
+
+@register_model('mlp')
+def build_mlp(config: dict):
+    """Return train_fold with MLP hyperparameters pre-applied from config."""
+    return partial(train_fold, **config.get('mlp', {}))
 
 
 def _eval(model, loader, criterion, device) -> tuple[float, np.ndarray]:

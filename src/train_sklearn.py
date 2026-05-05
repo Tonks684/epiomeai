@@ -9,7 +9,7 @@ import yaml
 
 from src.datasets import get_dataset
 from src.metrics import aggregate_fold_metrics, compute_metrics, format_results_table
-from src.models.sklearn_models import build_model  # registers logreg + gbm as side-effect
+from src.models import get_model
 from src.preprocessing import fit_transform, prepare_features
 from src.splits import assert_no_leakage, get_cv
 from src.wandb_utils import WandbLogger
@@ -45,7 +45,7 @@ def run(h5_path: str, task: str, config: dict, out_dir: Path,
                 X_train_s, X_val_s, _ = fit_transform(X[train_idx], X[val_idx])
                 y_train, y_val        = y[train_idx], y[val_idx]
 
-                model  = build_model(config)
+                model  = get_model(config['model'], config)
                 model.fit(X_train_s, y_train)
                 y_prob = model.predict_proba(X_val_s)[:, 1]
 

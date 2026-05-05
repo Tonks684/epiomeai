@@ -9,7 +9,7 @@ import yaml
 
 from src.datasets import get_dataset
 from src.metrics import aggregate_fold_metrics, compute_metrics, format_results_table
-from src.models.mlp import train_fold
+from src.models import get_model
 from src.preprocessing import fit_transform, prepare_features
 from src.splits import assert_no_leakage, get_cv
 from src.wandb_utils import WandbLogger
@@ -20,7 +20,7 @@ def run(h5_path: str, task: str, config: dict, out_dir: Path,
     """Train the MLP across all temporal modes and save per-fold metrics and OOF predictions."""
     dataset      = get_dataset(config.get('dataset', 'adni'), h5_path, config)
     X_raw, y, _  = dataset.load_task(task)
-    mlp_cfg      = config.get('mlp', {})
+    train_fold   = get_model('mlp', config)
 
     cv = get_cv(
         n_splits=config['cv']['n_splits'],
@@ -50,7 +50,6 @@ def run(h5_path: str, task: str, config: dict, out_dir: Path,
                     X_train_s, y_train,
                     X_val_s,   y_val,
                     seed=config['cv']['random_state'] + fold_idx,
-                    **mlp_cfg,
                 )
 
                 for entry in history:
