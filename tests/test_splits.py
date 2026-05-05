@@ -8,6 +8,7 @@ H5 = 'data/temporal_two_sets_n2000.h5'
 
 
 def test_no_individual_leakage():
+    """No index appears in both the training and validation sets in any fold."""
     X_raw, y, _ = load_task(H5, 'task1')
     X = prepare_features(X_raw, 't0')
     cv = get_cv(n_splits=5, n_repeats=1)
@@ -16,6 +17,7 @@ def test_no_individual_leakage():
 
 
 def test_cv_covers_all_individuals():
+    """Every individual appears in exactly one validation fold across a single repeat."""
     X_raw, y, _ = load_task(H5, 'task1')
     X = prepare_features(X_raw, 't0')
     cv = get_cv(n_splits=5, n_repeats=1)
@@ -27,6 +29,7 @@ def test_cv_covers_all_individuals():
 
 @pytest.mark.parametrize('task', ['task1', 'task2'])
 def test_stratification_preserves_ratio(task):
+    """Each validation fold's positive rate is within 15 percentage points of the overall rate."""
     X_raw, y, _ = load_task(H5, task)
     X = prepare_features(X_raw, 't0')
     overall_rate = y.mean()
