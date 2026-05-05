@@ -27,14 +27,14 @@ Labels are determined by group membership in the HDF5 file rather than being der
 
 **Finding 2 — Class imbalance requires deliberate metric and training choices.**  
 
-![](./outputs/eda/class_balance.png)
+![](/outputs/eda/class_balance.png)
 - Task 1 at 22.6% and Task 2 at 36.5% means a naive all-negative model achieves 77.4% accuracy. Accuracy is meaningless.  
 - PR-AUC is the primary metric: it focuses on both precision (fraction of correctly predicted converters) and recall (measures the fraction of true converters identified). ROC-AUC inflates via true negatives when negatives dominate.  
 - Sensitivity is reported separately: missing a true converter (FN) has higher clinical cost than a false alarm.
 
 **Finding 3 — Methylation is nearly identical across the two visits.**  
 
-![](./outputs/eda/longitudinal_delta.png)
+![](/outputs/eda/longitudinal_delta.png)
 - Within-individual Pearson r ≥ 0.998 (median) across all four groups.  
 - Mean absolute change per CpG ≈ 0.015–0.020 on the [0, 1] beta scale.  
 - Delta distributions for converters and non-converters are visually indistinguishable.  
@@ -50,7 +50,7 @@ Labels are determined by group membership in the HDF5 file rather than being der
 
 The dataset has exactly T = 2 time points per individual and r = 0.998. Initial plans included a temporal transformer to model the visit sequence however after inspection of the data attention reduces to a single scalar weight — no multi-step dependency exists. 
 
-A more useful question given tT = 2 is **does the change or the level carry the signal?**
+A more useful question given T = 2 is **does the change or the level carry the signal?**
 
 This is better answered by four explicit temporal input modes:
 
@@ -74,7 +74,77 @@ Used **5-fold repeated stratified CV, 3 repeats (15 folds total)**. Stratificati
 
 Class imbalance handled via loss weighting not resampling: SMOTE with 43 converters creates artificial redundancy from the same sparse minority; undersampling discards already-scarce majority data.
 
-### 4. End-end pipeline
+### 4a. Appraoch to submission
+## Phase 1 — Initial build (data-first)
+
+The first version of the repository was built immediately after inspecting the HDF5 file. Rather than starting from a pre-planned architecture, the design was driven by what the data actually contained.
+
+Key discoveries at this stage:
+- Labels are pre-defined by group membership in the HDF5 file.
+- Every individual has exactly two timepoints with a within-individual correlation of ~0.998. This ruled out the planned temporal transformer, which requires meaningful sequence length to make attention interpretable.
+- The delta mode (t1 − t0) was predicted to be uninformative given the near-identical visits. This was later confirmed empirically.
+
+These findings shaped the core pipeline: four explicit temporal modes (t0, t1, concat, delta) as a transparent ablation instead of a learned temporal model, and repeated stratified cross-validation instead of a single split due to the small number of converters in Task 1.
+
+Components built in this phase:
+- `src/data.py` — HDF5 loading with axis transposition
+- `src/splits.py` — repeated stratified CV with leakage assertion
+- `src/preprocessing.py` — temporal mode preparation and per-fold scaling
+- `src/models/sklearn_models.py` — logistic regression and GBM
+- `src/models/mlp.py` — compact MLP with early stopping
+- `src/train_sklearn.py` and `src/train_torch.py` — training loops
+- `src/metrics.py` — PR-AUC-first evaluation suite
+- `tests/` — 15 unit tests covering data loading, split correctness, and label counts
+
+## Phase 2 — Experiment tracking and evaluation (results-first)
+
+After confirming that training ran correctly, the focus shifted to making results reproducible, trackable, and visualisable.
+
+Key additions:
+- **Weights & Biases integration** (`src/wandb_utils.py`). A thin no-op wrapper makes W&B opt-in via `--wandb` flag without coupling the training loop to the logging library. sklearn runs log per-fold metrics and aggregated summaries; MLP runs additionally log per-epoch train and validation loss curves.
+- **OOF prediction saving.** Training scripts now save out-of-fold predicted probabilities to CSV alongside aggregated metrics JSON. This enables post-hoc ROC and precision-recall curve generation from all 15 folds without re-running training.
+- **`src/evaluate.py`** rewritten to load OOF predictions and produce ROC curves, PR curves, and bar charts comparing all model and temporal mode combinations.
+- **Docker support** (`Dockerfile`, `docker-compose.yml`). The training and test environments are fully containerised, with data and outputs mounted as volumes so nothing is baked into the image.
+
+## Phase 3 — Dataset and model abstraction (scale-first)
+
+With the core pipeline stable and results validated, the architecture was refactored to support new datasets and models without editing source files.
+
+**Problem:** `src/data.py` contained ADNI-specific HDF5 keys, axis conventions, and task definitions hardcoded in Python. Adding a second dataset (e.g. ROSMAP, AIBL) would require editing source files, which is fragile.
+
+**Solution — dataset interface and registry:**
+
+A `BaseDataset` abstract class (`src/datasets/base.py`) defines the interface that any loader must implement: `load_task(task) -> (X, y, feature_ids)` where `X` is `(N, T, D)`. The ADNI-specific logic moves to `src/datasets/adni.py`, which registers itself via a decorator:
+
+```python
+@register_dataset('adni')
+class AdniDataset(BaseDataset): ...
+```
+
+Task definitions move from hardcoded Python dictionaries to a `tasks` block in the YAML config, so a new dataset is a config change, not a code change. The `dataset` key in the config selects which loader to instantiate:
+
+```yaml
+dataset: adni
+tasks:
+  task1:
+    negative: X_cn_to_cn
+    positive: X_cn_to_mci
+    feature_ids: cpg_ids_cn
+```
+
+**Solution — model registry:**
+
+`src/models/registry.py` provides a `@register_model` decorator. Each model builder registers itself on import:
+
+```python
+@register_model('logreg')
+def build_logreg(config): ...
+```
+
+Training scripts call `get_model(config['model'], config)` without any `if/elif` chain. Adding a new model means creating a new file with a `@register_model` decorator — no changes to training scripts.
+
+**Backward compatibility:** `src/data.py` is retained as a thin shim that delegates to `AdniDataset`, so existing tests and the `inspect_hdf5.py` script continue to work unchanged.
+### 4b. End-end pipeline
 > 1. **Load** — `src/data.py` (or `src/datasets/adni.py`) reads the HDF5 and returns X as (N, T, D) and y as (N,) per task.  
 > 2. **Temporal mode** — `src/preprocessing.py` computes the requested representation (t0, t1, concat, or delta) from the (N, T, D) array, giving (N, D') where D' is 2,000 or 4,000.  
 > 3. **CV split** — `src/splits.py` generates 15 stratified folds (5-fold × 3 repeats) from (N, D'). A leakage assertion checks no index overlaps.  
@@ -118,7 +188,7 @@ The delta prediction was confirmed. Logistic regression was a strong baseline. T
 Key takeaways:
 1. Delta is consistently uninformative — confirms the EDA prediction.
 2. Logistic regression beats GBM substantially in this regime (high-D, low-N).
-3. MLP's main gain over logistic regression is **sensitivity**, not ROC-AUC. The discrimination gap is small; the recall gap is large. This is a threshold/calibration story (see Q&A §Results).
+3. MLP's main gain over logistic regression is **sensitivity** (missing true converter as FN), not ROC-AUC. The discrimination gap is small; the recall gap is large. The MLP's per-fold early stopping and nonlinearity appear to uncover signal not found in R-LR. Potenitally because the discriminative signal is likely not uniformly distributed across all features. Small subset carry most of the signal and their joint effect is not always the same at different regions. This non-linearity cant be modelled in R-LR.
 4. Adding t1 to t0 (concat) offers modest but real gains on Task 2; on Task 1, t0 alone is effectively optimal.
 5. All numbers are **optimistically biased** by pre-selection leakage (see §5).
 
@@ -126,15 +196,14 @@ Key takeaways:
 
 The most important limitation is the one baked in from the start. (report §2.2 and §5.4)
 
-**Feature pre-selection leakage.** The 2,000 CpGs were selected using variance ratio between converters and non-converters on the **full dataset**. This encodes label information before any train/test split. All reported AUCs are optimistically inflated by an unknown amount. Fold-wise reselection is not possible without the full CpG matrix. Relative comparisons between models and temporal modes are still valid; **absolute AUC values should not be taken as estimates of real-world performance**.
+**Feature pre-selection leakage.** The 2,000 CpGs were selected using variance ratio between converters and non-converters on the **full dataset**. Participants are assessed at multiple visits and their diagnostic status can change in complex ways: Eg. switch from recover to progress again. Deciding how to turn trajectories into binary label requires explicit choices. These choices cant be verified or audited. This encodes label information before any train/test split. All reported AUCs are optimistically inflated by an unknown amount. Fold-wise reselection is not possible without the full CpG matrix. Relative comparisons between models and temporal modes are still valid as inflation is constant; **absolute AUC values should not be taken as estimates of real-world performance**.
 
 Other honest gaps: no clinical covariates (APOE ε4, age, sex), no cell-type deconvolution for blood methylation confounding, no batch correction (no metadata provided), all evaluation within ADNI (known selection characteristics — older, educated, predominantly white).
 
-### 7. What I'd do next (~1 min)
+### 7. What I'd do next 
 
-_"In priority order by expected return:"_
 
-1. **Fix model registry to match dataset registry**: already completed this after submission.
+1. **Fix model registry to match dataset registry**: already completed this after submission. Part 2 of phase 3.
 1. **Fold-wise feature reselection** — would give an unbiased performance estimate. Highest-impact fix.
 2. **Clinical covariates** — APOE ε4 alone is a strong independent predictor; its absence is also a confounding risk.
 3. **Survival analysis** — time-to-conversion rather than binary label captures more clinical information.
