@@ -27,14 +27,14 @@ Labels are determined by group membership in the HDF5 file rather than being der
 
 **Finding 2 — Class imbalance requires deliberate metric and training choices.**  
 
-![](/outputs/eda/class_balance.png)
+![](./outputs/eda/class_balance.png)
 - Task 1 at 22.6% and Task 2 at 36.5% means a naive all-negative model achieves 77.4% accuracy. Accuracy is meaningless.  
 - PR-AUC is the primary metric: it focuses on both precision (fraction of correctly predicted converters) and recall (measures the fraction of true converters identified). ROC-AUC inflates via true negatives when negatives dominate.  
 - Sensitivity is reported separately: missing a true converter (FN) has higher clinical cost than a false alarm.
 
 **Finding 3 — Methylation is nearly identical across the two visits.**  
 
-![](/outputs/eda/longitudinal_delta.png)
+![](./outputs/eda/longitudinal_delta.png)
 - Within-individual Pearson r ≥ 0.998 (median) across all four groups.  
 - Mean absolute change per CpG ≈ 0.015–0.020 on the [0, 1] beta scale.  
 - Delta distributions for converters and non-converters are visually indistinguishable.  

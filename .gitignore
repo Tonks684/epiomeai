@@ -5,8 +5,6 @@ __pycache__/
 outputs/checkpoints/
 outputs/predictions/
 outputs/metrics/
-outputs/plots/
-outputs/eda/
 .ipynb_checkpoints/
 wandb/
 .env
