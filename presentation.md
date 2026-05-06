@@ -28,9 +28,10 @@ Labels are determined by group membership in the HDF5 file rather than being der
 **Finding 2 — Class imbalance requires deliberate metric and training choices.**  
 
 ![](./outputs/eda/class_balance.png)
-- Task 1 at 22.6% and Task 2 at 36.5% means a naive all-negative model achieves 77.4% accuracy. Accuracy is meaningless.  
-- PR-AUC is the primary metric: it focuses on both precision (fraction of correctly predicted converters) and recall (measures the fraction of true converters identified). ROC-AUC inflates via true negatives when negatives dominate.  
-- Sensitivity is reported separately: missing a true converter (FN) has higher clinical cost than a false alarm.
+- A naive all-negative model achieves 77.4% accuracy on Task 1 and 63.5% on Task 2. Accuracy is meaningless under imbalance.
+- **ROC-AUC** measures the probability that the model ranks a random converter above a random non-converter across all thresholds. It is inflated when negatives dominate because correctly ranking the large negative class is easy.
+- **PR-AUC** is the primary metric: precision is the fraction of *predicted* converters that are truly converters; recall is the fraction of *all true* converters that are correctly identified. It ignores true negatives entirely, so it cannot be inflated by a large negative class.
+- **Sensitivity** (= recall at a fixed threshold) is reported separately because missing a true converter — a false negative — has higher clinical cost than a false alarm.
 
 **Finding 3 — Methylation is nearly identical across the two visits.**  
 
@@ -176,7 +177,7 @@ The delta prediction was confirmed. Logistic regression was a strong baseline. T
 
 1. Delta is consistently uninformative — confirms the EDA prediction.
 2. Logistic regression beats GBM substantially in this regime (high-D, low-N).
-3. MLP's main gain over logistic regression is **sensitivity** (missing true converter as FN), not ROC-AUC. The discrimination gap is small; the recall gap is large. The MLP's per-fold early stopping and nonlinearity appear to uncover signal not found in R-LR. Potenitally because the discriminative signal is likely not uniformly distributed across all features. Small subset carry most of the signal and their joint effect is not always the same at different regions. This non-linearity cant be modelled in R-LR.
+3. MLP's main gain over logistic regression is **sensitivity** — the ability to correctly identify true converters. The discrimination gap (ROC-AUC, PR-AUC) is small; the sensitivity gap is large. Two mechanisms explain this. First, a **calibration/threshold effect**: L2 regularisation compresses logistic regression's coefficients toward zero, so logits cluster near zero and predicted probabilities cluster near 0.5. Fewer true converters cross the 0.5 decision threshold even when they are correctly ranked above non-converters. The MLP's nonlinear activations produce more bimodal probability outputs — true converters are predicted close to 1 — so more cross the threshold. Second, a **nonlinearity effect**: the discriminative methylation signal is likely concentrated in a small subset of CpGs whose joint effect is non-linear — for example, hypermethylation at one genomic region combined with hypomethylation at another may be more informative than either feature alone. Logistic regression cannot capture this interaction; the MLP can through its hidden layers.
 4. Adding t1 to t0 (concat)  on Task 1, t0 alone is effectively optimal.
 
 
@@ -201,7 +202,9 @@ The delta prediction was confirmed. Logistic regression was a strong baseline. T
 
 The most important limitation is the one baked in from the start. (report §2.2 and §5.4)
 
-**Feature pre-selection leakage.** The 2,000 CpGs were selected using variance ratio between converters and non-converters on the **full dataset**. Participants are assessed at multiple visits and their diagnostic status can change in complex ways: Eg. switch from recover to progress again. Deciding how to turn trajectories into binary label requires explicit choices. These choices cant be verified or audited. This encodes label information before any train/test split. All reported AUCs are optimistically inflated by an unknown amount. Fold-wise reselection is not possible without the full CpG matrix. Relative comparisons between models and temporal modes are still valid as inflation is constant; **absolute AUC values should not be taken as estimates of real-world performance**.
+**Feature pre-selection leakage.** The 2,000 CpGs per task were selected using variance ratio between converters and non-converters computed on the **full dataset** — before any train/test split. This means the validation fold individuals' methylation profiles contributed to the selection of the features they were later evaluated on. The model is not encountering a truly unseen feature space: the features were pre-screened to be discriminative in the very individuals used for evaluation. All reported AUCs are optimistically inflated as a result. Fold-wise reselection — running feature selection inside each CV loop using only training-fold labels — would remove this bias but requires the full CpG matrix, which was not provided. Relative comparisons between models and temporal modes are still valid because the bias is constant across all comparisons; **absolute AUC values should not be taken as estimates of real-world performance**.
+
+**Pre-defined labels.** Because labels are determined by HDF5 group membership, the upstream decisions about which visits to use, how to handle diagnostic reversion, and how to define conversion cannot be audited or varied. All performance estimates are conditional on those choices. (See report §5.1 for full discussion.)
 
 Other honest gaps: no clinical covariates (APOE ε4, age, sex), no cell-type deconvolution for blood methylation confounding, no batch correction (no metadata provided), all evaluation within ADNI (known selection characteristics — older, educated, predominantly white).
 
