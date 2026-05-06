@@ -351,4 +351,32 @@ _"In priority order by expected return on validity and clinical relevance:"_
 
 ---
 
-_Document covers: Problem framing · EDA & decisions · Model choices · Validation methodology · Results interpretation · Limitations · Reproducibility · AI tool usage · Deployment_
+## Theme J: Class Imbalance — Handling, Calibration, and Generalisability
+
+**Q: Walk me through how class imbalance was handled in each of the three models.**  
+> Same principle, three implementations — all computed per fold on that fold's training labels:
+> - **Logistic regression & GBM**: `class_weight='balanced'` — sklearn computes per-class weights as `n_samples / (n_classes × bincount(y))`, which gives each positive example an effective weight of `n_neg/n_pos` relative to negatives. This scales the per-sample gradient contribution during fitting.
+> - **MLP**: `pos_weight = n_neg/n_pos` passed to `BCEWithLogitsLoss` — only the positive term of the BCE is upscaled; the negative term stays at 1. The gradient *ratio* between a positive and negative example is identical to the sklearn balanced approach.
+>
+> The key shared property: all approaches tell the model to treat false negatives (missed converters) as `n_neg/n_pos` times more costly than false positives. For Task 1 that ratio is 147/43 ≈ 3.4×. Per-fold computation matters — fold-level class ratios vary slightly, so weights are recomputed each fold rather than using a single global ratio.
+
+**Q: How does class-weighted training affect the predicted probability outputs?**  
+> The model is trained as if the positive rate were ~50%, not the true 22.6% (Task 1) or 36.5% (Task 2). This shifts the decision boundary and has two concrete effects on outputs:
+>
+> 1. **Probabilities are not calibrated to true prevalence.** A predicted probability of 0.6 does not mean a 60% chance of conversion. Because training upweighted positives, the model outputs inflated conversion probabilities relative to ground truth. A reliability diagram (calibration plot) on held-out predictions would show the model's curve sitting above the diagonal.
+> 2. **Sensitivity improves at the cost of specificity.** The model flags converters more readily, catching more true positives but generating more false alarms. This is the intended clinical tradeoff — missing a converter has higher cost — but it means the raw threshold of 0.5 does not correspond to an equal-error operating point.
+>
+> This is why raw model outputs should not be reported as "conversion risk" without recalibration. Platt scaling or isotonic regression on a held-out fold maps the biased outputs to calibrated probabilities.
+
+**Q: Why does logistic regression end up with much lower sensitivity than the MLP despite similar ROC-AUC? Is this related to the imbalance handling?**  
+> Yes, but indirectly. Both models receive the same class weighting. The sensitivity gap (0.413 vs 0.803 on Task 1) comes from a second, separate mechanism: **logit compression from L2 regularisation**. Strong L2 regularisation shrinks all coefficients toward zero, so logistic regression's logits cluster near zero, which maps through sigmoid to predicted probabilities clustering near 0.5. Relatively few true converters are predicted above the 0.5 threshold even when they are correctly *ranked* above non-converters — hence high ROC-AUC but low sensitivity at 0.5. The MLP's nonlinear activations produce more bimodal outputs (predictions cluster near 0 or near 1), so more true converters exceed 0.5. If logistic regression's threshold were optimised using Youden's J instead of fixed at 0.5, its sensitivity would increase substantially without any change to the model — the ROC curve already shows the information is there.
+
+**Q: How does imbalance handling affect generalisability to a different population?**  
+> Two distinct issues:
+>
+> 1. **Prevalence shift changes PPV and NPV.** Sensitivity and specificity are intrinsic to the model and do not change with population prevalence. But positive predictive value (PPV — the fraction of flagged individuals who are true converters) and NPV do change. At ADNI's 22.6% conversion rate a model with 80% sensitivity and 80% specificity has a PPV of ~47%. In a general memory clinic with a 10% conversion rate, the same model's PPV drops to ~31% — more than half of positive predictions would be false alarms even with identical sensitivity and specificity. The class weighting was chosen for ADNI's prevalence; the operating characteristics need reassessment in any new population.
+> 2. **Calibration is population-specific.** The biased probability outputs are calibrated (implicitly) to ADNI's training distribution. Deploying in a lower-prevalence setting without recalibration will systematically over-predict conversion risk. Any probability score reported to a clinician must be recalibrated to the target population's prevalence, even if the underlying methylation signals transfer perfectly.
+
+---
+
+_Document covers: Problem framing · EDA & decisions · Model choices · Validation methodology · Results interpretation · Limitations · Reproducibility · AI tool usage · Deployment · Class imbalance_
