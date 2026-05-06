@@ -196,6 +196,12 @@ _"In priority order by expected return on validity and clinical relevance:"_
 **Q: Why CPU for the MLP? Isn't that slow?**  
 > The MLP is small — 2000 → 256 → 64 → 1, trained on 150–240 samples per fold. Forward and backward passes take milliseconds on CPU. The overhead of moving data to GPU and back would dominate for this batch size. 15 folds × up to 200 epochs runs in under a minute per temporal mode on CPU. GPU training would be warranted for larger architectures or datasets.
 
+**Q: Your early stopping monitors val_loss, but val_loss uses the same pos_weight as training. Does that affect the stopping criterion?**  
+> Yes. The val_loss for early stopping is a pos_weight-scaled BCE, not an unweighted one, so stopping prefers epochs where fewer true converters are missed. This is arguably clinically appropriate — you stop the model when it's best at not missing converters — but it's an implicit effect rather than a deliberate choice. A cleaner alternative would be early-stopping directly on val PR-AUC or val sensitivity every epoch. The current implementation is not wrong, just undocumented in intent.
+
+**Q: Your MLP uses pos_weight = n_neg/n_pos per fold while sklearn uses class_weight='balanced'. Are these equivalent?**  
+> The gradient *ratio* (positive example gradient vs negative example gradient) is the same. sklearn's balanced weighting gives w₁/w₀ = n_neg/n_pos — identical to PyTorch's pos_weight. The absolute loss magnitudes differ (sklearn upweights both classes relative to unweighted; PyTorch leaves the negative class at 1 and scales only positives), but the decision boundary shift is equivalent. Per-fold computation in both cases is important: if pos_weight were computed once on the full dataset it would differ slightly from per-fold values when class balance varies across folds.
+
 **Q: The brief explicitly mentions CNNs and RNNs. Why didn't you use either?**  
 > **RNN:** A recurrent model (GRU, LSTM) requires a sequence of meaningful length where earlier steps inform later ones. With T=2 and within-individual r=0.998, there is no temporal dependency to model — the hidden state after the first step carries almost no additional information over the input itself. An RNN here is a one-step transformation with extra parameters.  
 >   
@@ -305,6 +311,44 @@ _"In priority order by expected return on validity and clinical relevance:"_
 **Q: What does the W&B integration look like — can it be turned off?**  
 > `src/wandb_utils.py` is a thin wrapper around `wandb`. Training scripts accept a `--wandb` flag; when omitted, all logging calls are no-ops. The training loop is completely decoupled from W&B — there are no direct `wandb.*` calls in `src/train_sklearn.py` or `src/train_torch.py`. This was a deliberate choice: W&B is opt-in and the pipeline runs identically without it. (report §6, Phase 2)
 
+**Q: The HDF5 stores data as (features, timepoints, individuals). Walk me through the axis transposition.**  
+> `adni.py:46` calls `f[group][:].transpose(2, 1, 0)` on each group. The raw HDF5 array has shape `(D, T, N)` — features first, then timepoints, then individuals. `.transpose(2, 1, 0)` reorders axes to `(N, T, D)` — individuals × timepoints × features — which is the convention every downstream component expects. The test `test_load_shape` asserts `X.shape == (N, 2, 2000)` and would catch any transposition regression immediately.
+
+**Q: Walk me through what your tests cover and what they don't.**  
+> The 15 tests across two files cover: data loading shape, beta-value range, NaN absence, label counts, invalid-task error handling, task_summary consistency, no-individual-leakage per fold, full-coverage CV (every individual in exactly one val fold), and stratification ratio preservation. What's not covered: `src/metrics.py` (compute_metrics, aggregate_fold_metrics), `src/preprocessing.py` (prepare_features, fit_transform), model training (`mlp.py`, `sklearn_models.py`), `evaluate.py`, and the OOF CSV write path. A model-level test would assert that a trained fold produces probabilities in [0, 1] and that sensitivity is above the positive rate baseline. Adding those tests would be straightforward with a synthetic HDF5 fixture.
+
+**Q: Your CI smoke test runs without the real ADNI HDF5. What does and doesn't it validate?**  
+> The smoke pipeline (scripts/e2e_smoke.sh) uses synthetic lightweight data so the private ADNI file is never committed or required by CI. It validates that the full code path (load → temporal mode → CV → train sklearn + MLP → evaluate → write outputs) executes without errors, and that output files appear at the expected locations. It doesn't validate that numerical results on real ADNI data haven't regressed, or that model accuracy is above any threshold. Numerical regression testing would require either a committed reference output file (fragile to floating-point changes) or a small public methylation dataset to substitute for ADNI in CI.
+
+**Q: The StandardScaler is fitted per fold but the fitted scaler is discarded. How would you run inference on a new patient?**  
+> This is a real gap: `train_torch.py:46` calls `fit_transform(...)` and discards the returned scaler via `_`. For inference, you need the fitted scaler from the same fold used to train the model. The fix is a one-liner — `joblib.dump(scaler, scaler_path)` inside the training loop — and the scaler should be saved alongside the model weights. For a production endpoint the most practical approach is to refit the scaler on the full training dataset (all 15 folds combined) after CV, save it once, and use that for inference. The model weights aren't saved either; adding `torch.save(model.state_dict(), model_path)` completes the inference artefacts.
+
+**Q: The presentation notes mention fixing the model registry after submission. What changed and why?**  
+> Before the fix (`git commit 7e6f874`), the model registry and dataset registry used different patterns — the dataset registry used a class decorator (`@register_dataset`) while the model registry used function-level registration that didn't match. The fix aligned them so both follow the same decorator pattern, making the extension story consistent. This was completed after submission as a polish step — the core training results and all reported metrics are unchanged. It's worth being transparent: the submission included the functional pipeline, and the registry alignment was a code-quality improvement identified during review.
+
 ---
 
-_Document covers: Problem framing · EDA & decisions · Model choices · Validation methodology · Results interpretation · Limitations · Reproducibility_
+## Theme H: AI Tool Usage
+
+**Q: The brief asks you to describe how you used AI tools. Walk us through that.**  
+> Claude was used across three areas: (1) **Data exploration** — understanding the HDF5 structure and confirming that labels were pre-defined rather than requiring trajectory construction; (2) **Architectural reasoning** — the switch from a temporal transformer to explicit temporal modes was developed in dialogue with Claude after examining the within-individual correlation, which confirmed that T=2 with r=0.998 makes attention a near-trivial operation; (3) **Code generation** — training loops, CV scaffolding, the dataset/model registry pattern, evaluation plots, and the written report were generated with Claude and then reviewed and tested manually. The AI usage is documented in the README's AI tool usage section.
+
+**Q: How did you verify that AI-generated code was correct?**  
+> Two mechanisms. First, 15 unit tests cover the critical pipeline components — any generated code that broke data loading, split leakage, or stratification invariants was caught immediately. Second, the results were compared against analytical predictions made before modelling: delta should be uninformative, GBM should underperform in high-D low-N, logistic regression should be competitive. When all three predictions held empirically, it gave confidence the pipeline was correct. Any code that produced surprising results triggered investigation rather than acceptance.
+
+**Q: Did AI tools make the architectural decisions, or just implement ideas you had already formed?**  
+> Both. The decision to abandon the temporal transformer was mine after inspecting the correlation structure — the reasoning was clear before any Claude interaction. But the specific form of the temporal ablation (four named modes evaluated comparatively rather than a learned weighting), the OOF prediction saving strategy, and the dataset/model registry pattern were developed in dialogue with Claude. Claude's suggestions were filtered against domain knowledge of methylation studies and against empirical results on the actual data — suggestions that contradicted either were rejected or modified.
+
+---
+
+## Theme I: Deployment & Clinical Translation
+
+**Q: If this were deployed as a clinical decision support tool, what are the minimal productionization steps?**  
+> Five steps in order of priority: (1) Save the fitted scaler and model weights — currently neither is persisted; (2) Calibrate predicted probabilities — class-weighted training shifts outputs away from true conversion rates, so Platt scaling or isotonic regression on a held-out set is needed before probabilities can be interpreted as risk estimates; (3) Select an operating threshold explicitly using a clinical cost criterion (Youden's J, or a cost-weighted threshold from the ROC curve) rather than the default 0.5; (4) Validate on an external cohort (ROSMAP, AIBL) before any clinical use; (5) Wrap in an API endpoint that takes CpG beta values, applies the saved scaler, and returns a calibrated risk score. Steps 1–3 are post-hoc additions to the existing pipeline — none require retraining.
+
+**Q: What would you monitor once this model is deployed?**  
+> Three layers: (1) **Data drift** — monitor the distribution of incoming beta values against the ADNI training distribution; if mean or variance per CpG shifts significantly, the standardisation will be wrong and outputs unreliable; (2) **Prediction drift** — monitor the distribution of predicted probabilities over time; a systematic shift toward extreme values can indicate input distribution change; (3) **Outcome monitoring** — if follow-up diagnoses are eventually available, compare predicted conversion probabilities against actual outcomes to track calibration decay. In a methylation context, array platform changes (e.g., EPIC v1 to v2) are a known distribution-shift trigger that would require recalibration or retraining.
+
+---
+
+_Document covers: Problem framing · EDA & decisions · Model choices · Validation methodology · Results interpretation · Limitations · Reproducibility · AI tool usage · Deployment_
