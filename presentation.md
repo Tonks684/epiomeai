@@ -171,6 +171,7 @@ The delta prediction was confirmed. Logistic regression was a strong baseline. T
 | (delta, any model) | — | ~0.57–0.66 | ~0.39–0.46 | — |
 
 ![](./outputs/plots/task1_roc_auc_bars.png)
+![](./outputs/plots/task1_pr_auc_bars.png)
 ![](./outputs/plots/task1_sensitivity_bars.png)
 
 1. Delta is consistently uninformative — confirms the EDA prediction.
@@ -213,4 +214,5 @@ Other honest gaps: no clinical covariates (APOE ε4, age, sex), no cell-type dec
 3. **Survival analysis** — time-to-conversion rather than binary label captures more clinical information.
 4. **External validation** — ROSMAP or AIBL to test whether signals transfer out of ADNI.
 5. **Temporal models at scale** — dataset interface already returns (N, T, D), ready for an RNN/transformer if data scale grows.
+6. **Autoresearch (AR)** - hyperparemeter choice was based on intuition but using a tool such as AR for finding optimal hyper-paramters could lead to improved results.
 
